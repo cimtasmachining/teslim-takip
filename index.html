@@ -889,7 +889,10 @@ function renderDash(){
                   <td class="truncate" style="max-width:180px">${esc(o.malzTanim)}</td>
                   <td>${esc(o.bagMiktar)}</td>
                   <td>${fmtDate(o.sozTarih)}</td>
-                  <td class="fw6">${r.yeniTarih?fmtDate(r.yeniTarih):"—"}</td>
+                  <td class="fw6">
+                    ${r.yeniTarih?fmtDate(r.yeniTarih):"—"}
+                    <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 5px;margin-left:4px" onclick="duzenleYanit('${esc(o.id)}','${esc(r.yeniTarih||"")}','${esc(r.not||"")}')">✏</button>
+                  </td>
                   <td class="text-xs" style="color:var(--lgray)">${r.savedAt?fmtDateTime(r.savedAt):"—"}</td>
                   <td style="max-width:100px;color:var(--gray)">${esc(r.not||"—")}</td>
                   <td>
@@ -1060,6 +1063,62 @@ window.toggleGizli=async function(id, suanGizli){
   try{
     await setGizli(id, !suanGizli);
     flash(suanGizli ? "Kalem tekrar gösterilecek." : "Kalem tedarikçiye gizlendi.");
+    await loadDashData();
+    renderDash();
+  }catch(e){flash("Hata: "+e.message,"err");}
+};
+
+window.duzenleYanit=function(id, mevcutTarih, mevcutNot){
+  // DD.MM.YYYY formatına çevir
+  const gosterimTarih = mevcutTarih ? fmtDate(mevcutTarih) : "";
+  showModal(`
+  <div class="modal">
+    <div class="modal-hdr">
+      <h3>✏ Tedarikçi Yanıtını Düzenle</h3>
+      <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;font-size:20px;color:#94A3B8;line-height:1">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="field-lbl">Teslim Tarihi (GG.AA.YYYY)</label>
+      <input type="text" id="duz-tarih" value="${esc(gosterimTarih)}" placeholder="GG.AA.YYYY" maxlength="10"
+        style="font-family:monospace;letter-spacing:1px;margin-bottom:12px"
+        oninput="duzenleFormat(this)">
+      <label class="field-lbl">Tedarikçi Notu</label>
+      <textarea id="duz-not" style="height:80px;resize:vertical">${esc(mevcutNot)}</textarea>
+      <p class="text-xs mt8" style="color:var(--lgray)">Bu değişiklik tedarikçi adına yapılır. Giriş tarihi güncellenir.</p>
+    </div>
+    <div class="modal-ftr">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">İptal</button>
+      <button class="btn btn-primary btn-sm" onclick="kaydetDuzenle('${esc(id)}')">💾 Kaydet</button>
+    </div>
+  </div>`);
+};
+
+window.duzenleFormat=function(el){
+  let digits=el.value.replace(/[^0-9]/g,"");
+  let fmt="";
+  for(let i=0;i<digits.length&&i<8;i++){
+    if(i===2||i===4) fmt+=".";
+    fmt+=digits[i];
+  }
+  el.value=fmt;
+};
+
+window.kaydetDuzenle=async function(id){
+  const tarihRaw=document.getElementById("duz-tarih").value.trim();
+  const not=document.getElementById("duz-not").value.trim();
+  // DD.MM.YYYY → YYYY-MM-DD
+  const p=tarihRaw.split(".");
+  let isoTarih="";
+  if(p.length===3&&p[0].length===2&&p[1].length===2&&p[2].length===4){
+    isoTarih=p[2]+"-"+p[1]+"-"+p[0];
+  } else if(tarihRaw){
+    flash("Geçerli bir tarih girin (GG.AA.YYYY).","warn");
+    return;
+  }
+  try{
+    await saveResponse(id, isoTarih, not);
+    closeModal();
+    flash("Yanıt güncellendi.");
     await loadDashData();
     renderDash();
   }catch(e){flash("Hata: "+e.message,"err");}
