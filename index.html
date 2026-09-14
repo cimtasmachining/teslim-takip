@@ -504,7 +504,8 @@ async function showSupplierView(supplierId){
   const orders = allOrders.filter(o=>o.tedNo===supplierId && !o.gizli);
   const tedAdi = (orders[0]&&orders[0].tedUnvan)||supplierId;
   const acil = orders.filter(o=>o.acil);
-  const normal = orders.filter(o=>!o.acil);
+  const gecikmisSup = orders.filter(o=>!o.acil && orderStatus(o, responses[o.id]||{}) === "gecikti");
+  const normal = orders.filter(o=>!o.acil && orderStatus(o, responses[o.id]||{}) !== "gecikti");
 
   function rowHTML(o){
     const r=responses[o.id]||{};
@@ -558,15 +559,25 @@ async function showSupplierView(supplierId){
         <div style="font-size:11px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">⚠ Acil Kalemler</div>
         <div class="tbl-wrap"><table>${tblHeader}<tbody>${acil.map(rowHTML).join("")}</tbody></table></div>
       </div>`:""}
+      ${gecikmisSup.length?`
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">⏰ Tarihi Geçmiş Kalemler</div>
+        <div class="tbl-wrap"><table>${tblHeader}<tbody>${gecikmisSup.map(rowHTML).join("")}</tbody></table></div>
+      </div>`:""}
       ${normal.length?`
       <div>
-        ${acil.length?'<div style="font-size:11px;font-weight:800;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Diğer Siparişler</div>':""}
+        ${(acil.length||gecikmisSup.length)?'<div style="font-size:11px;font-weight:800;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Diğer Siparişler</div>':""}
         <div class="tbl-wrap"><table>${tblHeader}<tbody>${normal.map(rowHTML).join("")}</tbody></table></div>
       </div>`:""}
       ${!orders.length?'<div class="card card-body" style="text-align:center;color:var(--lgray);padding:60px">Size ait açık sipariş bulunamadı.</div>':""}
-      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn btn-primary" onclick="supSaveSelected()">✓ Seçilenleri Kaydet</button>
         <button class="btn btn-ghost btn-sm" onclick="supSelectAll()">Tümünü Seç</button>
+        <button class="btn btn-ghost btn-sm" onclick="supExcelIndir()">⬇ Excel İndir</button>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+          📂 Excel'den Yükle
+          <input type="file" accept=".xlsx,.xls" style="display:none" onchange="supExcelYukle(this)">
+        </label>
       </div>
     </div>
   </div>`;
@@ -639,6 +650,55 @@ async function showSupplierView(supplierId){
     }
     if(saved) flash(saved+" satır kaydedildi.");
     else flash("Tarih girilmiş satır bulunamadı.","warn");
+  };
+
+  // Excel indir — tedarikçi kendi siparişlerini indirebilir, düzenleyip yükler
+  window.supExcelIndir=function(){
+    const headers=["Talep","Malz. Kodu","Ek-1","Malzeme Tanımı","Bağlanmamış","Sip. Tarihi","Söz Verilen","Yeni Tarih (GG.AA.YYYY)","Not"];
+    const data=[headers,...orders.map(o=>{
+      const r=responses[o.id]||{};
+      return [
+        o.talepTipi+" "+o.talepNo+"/"+o.strNo,
+        o.malzKodu, o.ek1||"", o.malzTanim, o.bagMiktar,
+        o.sipTarih?fmtDate(o.sipTarih):"",
+        fmtDate(o.sozTarih),
+        r.yeniTarih?fmtDate(r.yeniTarih):"",
+        r.not||""
+      ];
+    })];
+    const wb=XLSX.utils.book_new();
+    const ws=XLSX.utils.aoa_to_sheet(data,{raw:false});
+    ws["!cols"]=[14,12,10,30,10,12,12,18,20].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb,ws,"Siparişler");
+    XLSX.writeFile(wb,"Siparisler_"+tedAdi.replace(/[^a-zA-Z0-9]/g,"_")+".xlsx");
+  };
+
+  // Excel'den yükle — H sütunu yeni tarih, I sütunu not
+  window.supExcelYukle=async function(input){
+    const file=input.files[0]; if(!file) return;
+    const wb=await readExcelFile(file);
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:false});
+    let saved=0;
+    for(let i=1;i<rows.length;i++){
+      const r=rows[i];
+      const tarihStr=String(r[7]||"").trim(); // H sütunu
+      const not=String(r[8]||"").trim();      // I sütunu
+      if(!tarihStr) continue;
+      const iso=window.parseDDMMYYYY(tarihStr);
+      if(!iso) continue;
+      const o=orders[i-1];
+      if(!o) continue;
+      await saveResponse(o.id, iso, not);
+      const dateEl=document.getElementById("sup-date-"+o.id);
+      if(dateEl) dateEl.value=tarihStr;
+      const btn=document.getElementById("sup-btn-"+o.id);
+      if(btn){btn.textContent="✓";btn.style.background="var(--green)";}
+      saved++;
+    }
+    input.value="";
+    if(saved) flash(saved+" satır Excel'den yüklendi.");
+    else flash("Geçerli tarih bulunamadı. H sütununa GG.AA.YYYY formatında girin.","warn");
   };
 }
 </script>
@@ -729,15 +789,34 @@ function renderDash(){
   const warnEl=document.getElementById("warn-area");
   if(warnEl){
     warnEl.innerHTML=missingMail.length?`
-    <div class="warn-banner">
+    <div class="warn-banner" style="cursor:pointer" onclick="showMissingMailPopup()">
       <span style="font-size:18px">⚠️</span>
-      <div>
-        <div class="fw7" style="color:#92400e;margin-bottom:2px">${missingMail.length} tedarikçinin mail adresi eksik</div>
-        <ul>${missingMail.slice(0,5).map(n=>`<li>${esc(n)}</li>`).join("")}${missingMail.length>5?`<li>...ve ${missingMail.length-5} tane daha</li>`:""}</ul>
-        <button class="btn btn-ghost btn-sm mt8" onclick="navigate('view=admin&tab=suppliers')" style="margin-top:8px">Tedarikçi Listesine Git →</button>
+      <div style="flex:1">
+        <div class="fw7" style="color:#92400e">${missingMail.length} tedarikçinin mail adresi eksik — tıklayın</div>
       </div>
+      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showMissingMailPopup()">Görüntüle</button>
     </div>`:"";
   }
+
+  window.showMissingMailPopup=function(){
+    showModal(`
+    <div class="modal">
+      <div class="modal-hdr">
+        <h3>⚠️ Mail Adresi Eksik (${missingMail.length} tedarikçi)</h3>
+        <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;font-size:20px;color:#94A3B8;line-height:1">×</button>
+      </div>
+      <div class="modal-body" style="padding:12px 20px;max-height:400px;overflow-y:auto">
+        ${missingMail.map(n=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+          <span class="text-sm fw6">${esc(n)}</span>
+          <span class="badge b-red" style="font-size:10px">Mail yok</span>
+        </div>`).join("")}
+      </div>
+      <div class="modal-ftr">
+        <button class="btn btn-primary btn-sm" onclick="closeModal();navigate('view=admin&tab=suppliers')">Tedarikçi Listesine Git →</button>
+      </div>
+    </div>`);
+  };
 
   // BİLDİRİM PANELİ
   const bildirimEl=document.getElementById("bildirim-area");
@@ -1438,8 +1517,15 @@ async function renderAcilAdmin(el){
 async function renderSuppliersAdmin(el){
   const smap=await getSuppliers();
   const list=Object.values(smap).sort((a,b)=>(a.name||"").localeCompare(b.name||"","tr"));
+  const mailsiz=list.filter(s=>!s.mail);
 
   el.innerHTML=`
+  ${mailsiz.length?`
+  <div class="warn-banner mb12" style="cursor:pointer" onclick="showMissingSupPopup()">
+    <span style="font-size:16px">⚠️</span>
+    <div class="fw7" style="color:#92400e;flex:1">${mailsiz.length} tedarikçinin mail adresi eksik — tıklayın</div>
+    <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showMissingSupPopup()">Görüntüle</button>
+  </div>`:""}
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
     <span class="fw7" style="font-size:15px">Tedarikçi Listesi</span>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1485,6 +1571,28 @@ async function renderSuppliersAdmin(el){
   </div>`;
 
   window.showAddSup=function(){document.getElementById("add-sup").classList.remove("hidden");};
+  window.showMissingSupPopup=function(){
+    showModal(`
+    <div class="modal">
+      <div class="modal-hdr">
+        <h3>⚠️ Mail Adresi Eksik (${mailsiz.length} tedarikçi)</h3>
+        <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;font-size:20px;color:#94A3B8;line-height:1">×</button>
+      </div>
+      <div class="modal-body" style="padding:12px 20px;max-height:400px;overflow-y:auto">
+        ${mailsiz.map(s=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <span class="text-sm fw6">${esc(s.name)}</span>
+            <span class="mono text-xs c-lgray" style="margin-left:8px">${esc(s.tedNo)}</span>
+          </div>
+          <span class="badge b-red" style="font-size:10px">Mail yok</span>
+        </div>`).join("")}
+      </div>
+      <div class="modal-ftr">
+        <button class="btn btn-ghost btn-sm" onclick="closeModal()">Kapat</button>
+      </div>
+    </div>`);
+  };
   window.filterSups=function(q){
     q=q.toLowerCase();
     document.querySelectorAll(".sup-admin-row").forEach(r=>{r.style.display=!q||r.dataset.s.includes(q)?"":"none";});
