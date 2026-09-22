@@ -215,6 +215,23 @@ async function upsertSupplier(tedNo, name, mail) {
 }
 async function deleteSupplier(tedNo) { await sbDelete("tedarikciler?ted_no=eq."+encodeURIComponent(tedNo)); }
 
+// YD NOTLAR
+async function getYdNotlar() {
+  const rows = await sbGet("yd_notlar?select=*");
+  const m = {};
+  (rows||[]).forEach(r => { m[r.siparis_id] = {not: r.not_||"", durum: r.durum||"bekliyor", updatedAt: r.updated_at}; });
+  return m;
+}
+async function saveYdNot(siparisId, not_, durum) {
+  await sbUpsert("yd_notlar", {
+    id: siparisId,
+    siparis_id: siparisId,
+    not_: not_,
+    durum: durum||"bekliyor",
+    updated_at: new Date().toISOString()
+  });
+}
+
 async function getAyar(key) {
   const r = await sbGet("ayarlar?key=eq."+encodeURIComponent(key)+"&select=value");
   return r&&r.length ? r[0].value : null;
@@ -521,13 +538,13 @@ async function showSupplierView(supplierId){
         ${isLate?'<span class="badge b-red">Tarih Geçti</span>':""}
         ${isDone&&!isLate?'<span class="badge b-green">✓</span>':""}
       </td>
-      <td class="mono">${esc(o.talepTipi)} ${esc(o.talepNo)}/${esc(o.strNo)}</td>
-      <td><code style="background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:11px">${esc(o.malzKodu)}</code></td>
-      <td class="text-xs" style="color:var(--gray)">${esc(o.ek1||"—")}</td>
-      <td style="max-width:200px"><div class="truncate" title="${esc(o.malzTanim)}">${esc(o.malzTanim)}</div></td>
-      <td class="fw6">${esc(o.bagMiktar)}</td>
-      <td class="text-xs" style="color:var(--lgray)">${o.sipTarih?fmtDate(o.sipTarih):"—"}</td>
-      <td>${fmtDate(o.sozTarih)}</td>
+      <td class="mono" style="font-size:10px;white-space:nowrap">${esc(o.talepTipi)} ${esc(o.talepNo)}/${esc(o.strNo)}</td>
+      <td class="mono" style="font-size:11px">${esc(o.malzKodu)}</td>
+      <td class="text-xs" style="color:var(--gray);max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.ek1||"—")}</td>
+      <td style="max-width:160px"><div class="truncate" title="${esc(o.malzTanim)}">${esc(o.malzTanim)}</div></td>
+      <td class="fw6" style="text-align:center">${esc(o.bagMiktar)}</td>
+      <td class="text-xs" style="color:var(--lgray);white-space:nowrap">${o.sipTarih?fmtDate(o.sipTarih):"—"}</td>
+      <td style="white-space:nowrap">${fmtDate(o.sozTarih)}</td>
       <td>
         <input type="text" id="sup-date-${o.id}" value="${esc(r.yeniTarih ? fmtDate(r.yeniTarih) : "")}" placeholder="GG.AA.YYYY" maxlength="10" style="min-width:110px;font-family:monospace;letter-spacing:1px" oninput="supDateInput(this,'${esc(o.id)}')" onblur="supDateChange('${esc(o.id)}')">
       </td>
@@ -542,9 +559,19 @@ async function showSupplierView(supplierId){
   }
 
   const tblHeader=`<thead><tr>
-    <th style="width:30px"><input type="checkbox" onchange="supToggleAll(this.checked)"></th>
-    <th></th><th>Talep</th><th>Malz. Kodu</th><th>Ek-1</th><th>Malzeme Tanımı</th>
-    <th>Bağlanmamış</th><th>Sip. Tarihi</th><th>Söz Verilen</th><th>Yeni Tarih</th><th>Not</th><th>Cimtaş Notu</th><th></th>
+    <th style="width:28px"><input type="checkbox" onchange="supToggleAll(this.checked)"></th>
+    <th style="width:20px"></th>
+    <th style="white-space:nowrap">Talep</th>
+    <th>Malz. Kodu</th>
+    <th style="max-width:80px">Ek-1</th>
+    <th>Malzeme</th>
+    <th style="width:50px">Miktar</th>
+    <th style="width:80px">Sip. Tar.</th>
+    <th style="width:85px">Söz Ver.</th>
+    <th style="width:120px">Yeni Tarih</th>
+    <th style="width:100px">Not</th>
+    <th style="width:80px">Çimtaş</th>
+    <th style="width:70px"></th>
   </tr></thead>`;
 
   document.body.innerHTML=`
@@ -554,6 +581,15 @@ async function showSupplierView(supplierId){
   </header>
   <div class="page">
     <div class="max">
+      <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-primary" onclick="supSaveSelected()">✓ Seçilenleri Kaydet</button>
+        <button class="btn btn-ghost btn-sm" onclick="supSelectAll()">Tümünü Seç</button>
+        <button class="btn btn-ghost btn-sm" onclick="supExcelIndir()">⬇ Excel İndir</button>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+          📂 Excel'den Yükle
+          <input type="file" accept=".xlsx,.xls" style="display:none" onchange="supExcelYukle(this)">
+        </label>
+      </div>
       ${acil.length?`
       <div style="margin-bottom:16px">
         <div style="font-size:11px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">⚠ Acil Kalemler</div>
@@ -570,15 +606,6 @@ async function showSupplierView(supplierId){
         <div class="tbl-wrap"><table>${tblHeader}<tbody>${normal.map(rowHTML).join("")}</tbody></table></div>
       </div>`:""}
       ${!orders.length?'<div class="card card-body" style="text-align:center;color:var(--lgray);padding:60px">Size ait açık sipariş bulunamadı.</div>':""}
-      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn btn-primary" onclick="supSaveSelected()">✓ Seçilenleri Kaydet</button>
-        <button class="btn btn-ghost btn-sm" onclick="supSelectAll()">Tümünü Seç</button>
-        <button class="btn btn-ghost btn-sm" onclick="supExcelIndir()">⬇ Excel İndir</button>
-        <label class="btn btn-ghost btn-sm" style="cursor:pointer">
-          📂 Excel'den Yükle
-          <input type="file" accept=".xlsx,.xls" style="display:none" onchange="supExcelYukle(this)">
-        </label>
-      </div>
     </div>
   </div>`;
 
@@ -929,12 +956,19 @@ function renderDash(){
     hatirlatma:sups.filter(s=>s.hatirlatmaGereken.length>0&&s.status!=="tamamlandi").length
   };
   const statEl=document.getElementById("stat-cards");
+  const ydOrders = _D.orders.filter(o=>o.talepTipi==="YD");
+  const ydCount = ydOrders.length;
+
   if(statEl) statEl.innerHTML=`
     <div class="stat ${_D.filter==="hepsi"?"active":""}" onclick="setFilter('hepsi')"><div class="stat-val c-navy">${totals.toplam}</div><div class="stat-lbl">Tedarikçi</div></div>
     <div class="stat ${_D.filter==="tamamlandi"?"active":""}" onclick="setFilter('tamamlandi')"><div class="stat-val c-green">${totals.tamamlandi}</div><div class="stat-lbl">Tamamlandı</div></div>
     <div class="stat ${_D.filter==="bekliyor"?"active":""}" onclick="setFilter('bekliyor')"><div class="stat-val c-amber">${totals.bekliyor}</div><div class="stat-lbl">Bekliyor</div></div>
     <div class="stat ${_D.filter==="gecikti"?"active":""}" onclick="setFilter('gecikti')"><div class="stat-val c-red">${totals.gecikti}</div><div class="stat-lbl">Gecikti</div></div>
-    <div class="stat ${_D.filter==="hatirlatma"?"active":""}" onclick="setFilter('hatirlatma')"><div class="stat-val c-orange">${totals.hatirlatma}</div><div class="stat-lbl">🔔 Hatırlatma</div></div>`;
+    <div class="stat ${_D.filter==="hatirlatma"?"active":""}" onclick="setFilter('hatirlatma')"><div class="stat-val c-orange">${totals.hatirlatma}</div><div class="stat-lbl">🔔 Hatırlatma</div></div>
+    <div class="stat" onclick="showYdPanel()" style="border-left:4px solid #6366f1;cursor:pointer" title="Yurtdışı sipariş takibi">
+      <div class="stat-val" style="color:#6366f1">${ydCount}</div>
+      <div class="stat-lbl">🌍 Yurtdışı</div>
+    </div>`;
 
   // FILTER & SEARCH
   let filtered=sups.filter(s=>!s.isBeklenmez);
@@ -1153,6 +1187,117 @@ window.toggleDetail=function(tedNo){
 }
 
 window.setFilter=function(f){_D.filter=f;renderDash();};
+
+window.showYdPanel=async function(){
+  const ydOrders=_D.orders.filter(o=>o.talepTipi==="YD");
+  if(!ydOrders.length){flash("YD tipinde sipariş bulunamadı.","warn");return;}
+
+  const ydNotlar=await getYdNotlar();
+
+  // Tedarikçi bazında grupla
+  const groups=new Map();
+  ydOrders.forEach(o=>{
+    if(!groups.has(o.tedNo)) groups.set(o.tedNo,{tedNo:o.tedNo,tedUnvan:o.tedUnvan,orders:[]});
+    groups.get(o.tedNo).orders.push(o);
+  });
+
+  const durumlar=["bekliyor","sipariş verildi","üretimde","sevkiyatta","gümrükte","teslim edildi"];
+  const durumRenk={"bekliyor":"b-gray","sipariş verildi":"b-blue","üretimde":"b-amber","sevkiyatta":"b-orange","gümrükte":"b-amber","teslim edildi":"b-green"};
+
+  showModal(`
+  <div class="modal" style="max-width:900px;width:95vw">
+    <div class="modal-hdr">
+      <h3>🌍 Yurtdışı Sipariş Takibi — ${ydOrders.length} kalem</h3>
+      <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;font-size:20px;color:#94A3B8;line-height:1">×</button>
+    </div>
+    <div class="modal-body" style="padding:0;max-height:75vh;overflow-y:auto">
+      ${Array.from(groups.values()).map(g=>`
+      <div style="border-bottom:2px solid var(--border)">
+        <div style="padding:10px 16px;background:#F8FAFC;font-weight:700;font-size:13px;color:var(--navy)">${esc(g.tedUnvan)}</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#F1F5F9">
+            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px;text-transform:uppercase;letter-spacing:.3px">Talep</th>
+            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Malz. Kodu</th>
+            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Ek-1</th>
+            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Malzeme</th>
+            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Miktar</th>
+            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Sip. Tarihi</th>
+            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Söz Verilen</th>
+            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px;width:120px">Durum</th>
+            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Not / Son Durum</th>
+          </tr></thead>
+          <tbody>
+            ${g.orders.map(o=>{
+              const n=ydNotlar[o.id]||{not:"",durum:"bekliyor"};
+              const renk=durumRenk[n.durum]||"b-gray";
+              return `<tr style="border-top:1px solid #F1F5F9">
+                <td style="padding:8px 12px" class="mono">${esc(o.talepNo)}/${esc(o.strNo)}</td>
+                <td style="padding:8px 12px" class="mono">${esc(o.malzKodu)}</td>
+                <td style="padding:8px 12px;color:var(--gray);font-size:11px;max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.ek1||"—")}</td>
+                <td style="padding:8px 12px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(o.malzTanim)}">${esc(o.malzTanim)}</td>
+                <td style="padding:8px 12px;font-weight:600">${esc(o.bagMiktar)}</td>
+                <td style="padding:8px 12px;color:var(--lgray);font-size:11px">${o.sipTarih?fmtDate(o.sipTarih):"—"}</td>
+                <td style="padding:8px 12px">${fmtDate(o.sozTarih)}</td>
+                <td style="padding:8px 12px">
+                  <select onchange="saveYdDurum('${esc(o.id)}',this.value)" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;width:100%">
+                    ${durumlar.map(d=>`<option value="${d}" ${n.durum===d?"selected":""}>${d}</option>`).join("")}
+                  </select>
+                </td>
+                <td style="padding:8px 12px">
+                  <div style="display:flex;gap:6px;align-items:center">
+                    <input type="text" id="yd-not-${esc(o.id)}" value="${esc(n.not)}" placeholder="Not gir..."
+                      style="padding:4px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;flex:1;min-width:120px"
+                      onkeydown="if(event.key==='Enter')saveYdNotSatir('${esc(o.id)}')">
+                    <button onclick="saveYdNotSatir('${esc(o.id)}')"
+                      style="padding:4px 8px;font-size:10px;background:var(--navy);color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">
+                      💾
+                    </button>
+                  </div>
+                  ${n.updatedAt?`<div style="font-size:10px;color:var(--lgray);margin-top:2px">${fmtDateTime(n.updatedAt)}</div>`:""}
+                </td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>`).join("")}
+    </div>
+    <div class="modal-ftr">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">Kapat</button>
+      <button class="btn btn-primary btn-sm" onclick="exportYd()">⬇ Excel İndir</button>
+    </div>
+  </div>`);
+
+  window.saveYdDurum=async function(id, durum){
+    const notEl=document.getElementById("yd-not-"+id);
+    const not_=notEl?notEl.value:"";
+    await saveYdNot(id, not_, durum);
+    flash("Durum kaydedildi.");
+  };
+
+  window.saveYdNotSatir=async function(id){
+    const notEl=document.getElementById("yd-not-"+id);
+    const not_=notEl?notEl.value:"";
+    const durumSel=document.querySelector(`[onchange="saveYdDurum('${id}',this.value)"]`);
+    const durum=durumSel?durumSel.value:"bekliyor";
+    await saveYdNot(id, not_, durum);
+    flash("Not kaydedildi.");
+  };
+
+  window.exportYd=function(){
+    const headers=["Tedarikçi","Talep No","Str No","Malz. Kodu","Ek-1","Malzeme Tanımı","Miktar","Sip. Tarihi","Söz Verilen","Durum","Not","Son Güncelleme"];
+    const data=[headers,...ydOrders.map(o=>{
+      const n=ydNotlar[o.id]||{};
+      return [o.tedUnvan,o.talepNo,o.strNo,o.malzKodu,o.ek1||"",o.malzTanim,o.bagMiktar,
+              o.sipTarih?fmtDate(o.sipTarih):"",fmtDate(o.sozTarih),
+              n.durum||"bekliyor",n.not||"",n.updatedAt?fmtDateTime(n.updatedAt):""];
+    })];
+    const wb=XLSX.utils.book_new();
+    const ws=XLSX.utils.aoa_to_sheet(data,{raw:false});
+    ws["!cols"]=[25,10,8,14,10,30,8,12,12,15,25,16].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb,ws,"YD Siparişler");
+    XLSX.writeFile(wb,"YD_Siparisler_"+new Date().toISOString().slice(0,10)+".xlsx");
+  };
+};
 window.setSearch=function(q){_D.search=q.toLowerCase();renderDash();};
 window.toggleAll=function(checked){document.querySelectorAll("[id^='schk-']").forEach(el=>el.checked=checked);updateTopluBtn();};
 window.updateTopluBtn=function(){
