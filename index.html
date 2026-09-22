@@ -124,6 +124,11 @@ input:disabled{background:#F8FAFC;color:var(--gray)}
 
 /* MISC */
 .hidden{display:none!important}
+.ek1-cell{position:relative;cursor:default}
+.ek1-cell:hover .ek1-tip{display:flex}
+.ek1-tip{display:none;position:absolute;left:0;top:100%;z-index:999;background:#1e293b;color:#fff;padding:6px 10px;border-radius:7px;font-size:11px;white-space:nowrap;max-width:320px;white-space:normal;gap:8px;align-items:center;box-shadow:0 4px 12px rgba(0,0,0,.25);min-width:120px}
+.ek1-tip button{background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer;flex-shrink:0}
+.ek1-tip button:hover{background:rgba(255,255,255,.3)}
 .space-y>*+*{margin-top:10px}
 .flex{display:flex;align-items:center}.gap4{gap:4px}.gap8{gap:8px}.gap12{gap:12px}.gap16{gap:16px}
 .flex-1{flex:1}.min-w-0{min-width:0}.truncate{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -540,7 +545,7 @@ async function showSupplierView(supplierId){
       </td>
       <td class="mono" style="font-size:10px;white-space:nowrap">${esc(o.talepTipi)} ${esc(o.talepNo)}/${esc(o.strNo)}</td>
       <td class="mono" style="font-size:11px">${esc(o.malzKodu)}</td>
-      <td class="text-xs" style="color:var(--gray);max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.ek1||"—")}</td>
+      <td class="ek1-cell text-xs" style="color:var(--gray);max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.ek1||"—")}<div class="ek1-tip"><span style="flex:1">${esc(o.ek1||"—")}</span><button onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(o.ek1||"")}');event.stopPropagation()">Kopyala</button></div></td>
       <td style="max-width:160px"><div class="truncate" title="${esc(o.malzTanim)}">${esc(o.malzTanim)}</div></td>
       <td class="fw6" style="text-align:center">${esc(o.bagMiktar)}</td>
       <td class="text-xs" style="color:var(--lgray);white-space:nowrap">${o.sipTarih?fmtDate(o.sipTarih):"—"}</td>
@@ -788,6 +793,7 @@ function getSupStats(){
   const map=new Map();
   _D.orders.forEach(o=>{
     if(_D.haric.has(o.tedNo)) return;
+    if(o.talepTipi==="YD") return; // YD siparişleri ayrı takip edilir
     if(!map.has(o.tedNo)) map.set(o.tedNo,{tedNo:o.tedNo,tedUnvan:o.tedUnvan,orders:[]});
     map.get(o.tedNo).orders.push(o);
   });
@@ -810,7 +816,7 @@ function getSupStats(){
 
 function renderDash(){
   const sups=getSupStats();
-  const missingMail=_D.orders.filter(o=>!_D.haric.has(o.tedNo)&&!(_D.sups[o.tedNo]&&_D.sups[o.tedNo].mail)).map(o=>o.tedUnvan).filter((v,i,a)=>a.indexOf(v)===i);
+  const missingMail=_D.orders.filter(o=>o.talepTipi!=="YD"&&!_D.haric.has(o.tedNo)&&!(_D.sups[o.tedNo]&&_D.sups[o.tedNo].mail)).map(o=>o.tedUnvan).filter((v,i,a)=>a.indexOf(v)===i);
   
   // WARN BANNER - eksik mail
   const warnEl=document.getElementById("warn-area");
@@ -1029,7 +1035,7 @@ function renderDash(){
           ${s.mail?`
           <button class="btn btn-ghost btn-sm" onclick="sendMail('${esc(s.tedNo)}','${esc(s.tedUnvan)}','${esc(s.mail)}','${s.mailSayisi===0?"ilk":"hatirlatma"}',${hatNo},null)">
             ✉ ${s.mailSayisi===0?"İlk Mail At":s.mailSayisi+1+". Hatırlatma"}
-          </button>`:'<span class="text-xs" style="color:var(--lgray)">Mail yok</span>'}
+          </button>`:s.orders.some(o=>o.talepTipi==="YD")?"":'<span class="text-xs" style="color:var(--lgray)">Mail yok</span>'}
           ${gecikmisOrders.length&&s.mail?`<button class="btn btn-red btn-sm" onclick="sendMail('${esc(s.tedNo)}','${esc(s.tedUnvan)}','${esc(s.mail)}','gecikme',1,${JSON.stringify(gecikmisOrders.map(o=>({malzKodu:o.malzKodu,malzTanim:o.malzTanim,sozTarih:o.sozTarih}))).replace(/"/g,"&quot;")})">⚠ Gecikme</button>`:""}
           <button class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--lgray)" onclick="markBeklenmez('${esc(s.tedNo)}',true)" title="Dönüş beklemiyorum">🚫</button>
         </div>
@@ -1067,7 +1073,7 @@ function renderDash(){
                 return `<tr class="${st2==="gecikti"?"late":st2==="girildi"?"done":""}${o.gizli?" gizli":""}" data-st="${st2}" data-s="${esc((o.malzKodu+" "+o.malzTanim).toLowerCase())}">
                   <td class="mono">${esc(o.talepTipi)} ${esc(o.talepNo)}/${esc(o.strNo)}</td>
                   <td class="mono">${esc(o.malzKodu)}</td>
-                  <td class="text-xs" style="color:var(--gray);max-width:80px" class="truncate">${esc(o.ek1||"—")}</td>
+                  <td class="ek1-cell text-xs" style="color:var(--gray);max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.ek1||"—")}<div class="ek1-tip"><span style="flex:1">${esc(o.ek1||"—")}</span><button onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(o.ek1||"")}');event.stopPropagation()">Kopyala</button></div></td>
                   <td class="truncate" style="max-width:180px">${esc(o.malzTanim)}</td>
                   <td>${esc(o.bagMiktar)}</td>
                   <td class="text-xs" style="color:var(--lgray)">${o.sipTarih?fmtDate(o.sipTarih):"—"}</td>
@@ -1240,7 +1246,7 @@ async function renderYdView(el){
                 ${i===0?`<td rowspan="${g.orders.length}" style="padding:8px 12px;font-weight:600;vertical-align:top;border-right:1px solid var(--border);max-width:140px;word-break:break-word">${esc(g.tedUnvan)}</td>`:""}
                 <td style="padding:7px 12px" class="mono">${esc(o.talepNo)}/${esc(o.strNo)}</td>
                 <td style="padding:7px 12px" class="mono">${esc(o.malzKodu)}</td>
-                <td style="padding:7px 12px;color:var(--gray);max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.ek1||"—")}</td>
+                <td class="ek1-cell" style="padding:7px 12px;color:var(--gray);max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.ek1||"—")}<div class="ek1-tip"><span style="flex:1">${esc(o.ek1||"—")}</span><button onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(o.ek1||"")}');event.stopPropagation()">Kopyala</button></div></td>
                 <td style="padding:7px 12px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(o.malzTanim)}">${esc(o.malzTanim)}</td>
                 <td style="padding:7px 12px;font-weight:600;text-align:center">${esc(o.bagMiktar)}</td>
                 <td style="padding:7px 12px;color:var(--lgray);white-space:nowrap">${o.sipTarih?fmtDate(o.sipTarih):"—"}</td>
