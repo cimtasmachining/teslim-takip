@@ -965,7 +965,7 @@ function renderDash(){
     <div class="stat ${_D.filter==="bekliyor"?"active":""}" onclick="setFilter('bekliyor')"><div class="stat-val c-amber">${totals.bekliyor}</div><div class="stat-lbl">Bekliyor</div></div>
     <div class="stat ${_D.filter==="gecikti"?"active":""}" onclick="setFilter('gecikti')"><div class="stat-val c-red">${totals.gecikti}</div><div class="stat-lbl">Gecikti</div></div>
     <div class="stat ${_D.filter==="hatirlatma"?"active":""}" onclick="setFilter('hatirlatma')"><div class="stat-val c-orange">${totals.hatirlatma}</div><div class="stat-lbl">🔔 Hatırlatma</div></div>
-    <div class="stat" onclick="showYdPanel()" style="border-left:4px solid #6366f1;cursor:pointer" title="Yurtdışı sipariş takibi">
+    <div class="stat ${_D.filter==="yd"?"active":""}" onclick="setFilter('yd')" style="border-left:4px solid #6366f1">
       <div class="stat-val" style="color:#6366f1">${ydCount}</div>
       <div class="stat-lbl">🌍 Yurtdışı</div>
     </div>`;
@@ -993,6 +993,13 @@ function renderDash(){
   // LIST
   const listEl=document.getElementById("sup-list");
   if(!listEl) return;
+
+  // YD filtresi — ayrı görünüm
+  if(_D.filter==="yd"){
+    renderYdView(listEl);
+    return;
+  }
+
   if(!filtered.length){listEl.innerHTML='<div style="padding:40px;text-align:center;color:var(--lgray)">Sonuç bulunamadı.</div>';return;}
 
   listEl.innerHTML=filtered.map(s=>{
@@ -1188,11 +1195,15 @@ window.toggleDetail=function(tedNo){
 
 window.setFilter=function(f){_D.filter=f;renderDash();};
 
-window.showYdPanel=async function(){
+async function renderYdView(el){
   const ydOrders=_D.orders.filter(o=>o.talepTipi==="YD");
-  if(!ydOrders.length){flash("YD tipinde sipariş bulunamadı.","warn");return;}
+  if(!ydOrders.length){
+    el.innerHTML='<div style="padding:40px;text-align:center;color:var(--lgray)">YD tipinde sipariş bulunamadı.</div>';
+    return;
+  }
 
   const ydNotlar=await getYdNotlar();
+  const durumlar=["bekliyor","sipariş verildi","üretimde","sevkiyatta","gümrükte","teslim edildi"];
 
   // Tedarikçi bazında grupla
   const groups=new Map();
@@ -1201,86 +1212,71 @@ window.showYdPanel=async function(){
     groups.get(o.tedNo).orders.push(o);
   });
 
-  const durumlar=["bekliyor","sipariş verildi","üretimde","sevkiyatta","gümrükte","teslim edildi"];
-  const durumRenk={"bekliyor":"b-gray","sipariş verildi":"b-blue","üretimde":"b-amber","sevkiyatta":"b-orange","gümrükte":"b-amber","teslim edildi":"b-green"};
-
-  showModal(`
-  <div class="modal" style="max-width:900px;width:95vw">
-    <div class="modal-hdr">
-      <h3>🌍 Yurtdışı Sipariş Takibi — ${ydOrders.length} kalem</h3>
-      <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;font-size:20px;color:#94A3B8;line-height:1">×</button>
-    </div>
-    <div class="modal-body" style="padding:0;max-height:75vh;overflow-y:auto">
-      ${Array.from(groups.values()).map(g=>`
-      <div style="border-bottom:2px solid var(--border)">
-        <div style="padding:10px 16px;background:#F8FAFC;font-weight:700;font-size:13px;color:var(--navy)">${esc(g.tedUnvan)}</div>
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr style="background:#F1F5F9">
-            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px;text-transform:uppercase;letter-spacing:.3px">Talep</th>
-            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Malz. Kodu</th>
-            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Ek-1</th>
-            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Malzeme</th>
-            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Miktar</th>
-            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Sip. Tarihi</th>
-            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Söz Verilen</th>
-            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px;width:120px">Durum</th>
-            <th style="padding:7px 12px;text-align:left;color:var(--gray);font-size:11px">Not / Son Durum</th>
-          </tr></thead>
-          <tbody>
-            ${g.orders.map(o=>{
+  el.innerHTML=`
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+    <span style="font-size:15px;font-weight:800;color:var(--navy)">🌍 Yurtdışı Sipariş Takibi — ${ydOrders.length} kalem</span>
+    <button class="btn btn-primary btn-sm" onclick="exportYd()">⬇ Excel İndir</button>
+  </div>
+  <div class="card" style="overflow:hidden">
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:900px">
+        <thead><tr style="background:#F1F5F9">
+          <th style="padding:9px 12px;text-align:left;color:var(--gray);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Tedarikçi</th>
+          <th style="padding:9px 12px;text-align:left;color:var(--gray);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Talep</th>
+          <th style="padding:9px 12px;text-align:left;color:var(--gray);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Malz. Kodu</th>
+          <th style="padding:9px 12px;text-align:left;color:var(--gray);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Ek-1</th>
+          <th style="padding:9px 12px;text-align:left;color:var(--gray);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Malzeme</th>
+          <th style="padding:9px 12px;text-align:left;color:var(--gray);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Miktar</th>
+          <th style="padding:9px 12px;text-align:left;color:var(--gray);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Sip. Tar.</th>
+          <th style="padding:9px 12px;text-align:left;color:var(--gray);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Söz Ver.</th>
+          <th style="padding:9px 12px;text-align:left;color:var(--gray);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);width:130px">Durum</th>
+          <th style="padding:9px 12px;text-align:left;color:var(--gray);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Not / Son Durum</th>
+        </tr></thead>
+        <tbody>
+          ${Array.from(groups.values()).map(g=>
+            g.orders.map((o,i)=>{
               const n=ydNotlar[o.id]||{not:"",durum:"bekliyor"};
-              const renk=durumRenk[n.durum]||"b-gray";
-              return `<tr style="border-top:1px solid #F1F5F9">
-                <td style="padding:8px 12px" class="mono">${esc(o.talepNo)}/${esc(o.strNo)}</td>
-                <td style="padding:8px 12px" class="mono">${esc(o.malzKodu)}</td>
-                <td style="padding:8px 12px;color:var(--gray);font-size:11px;max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.ek1||"—")}</td>
-                <td style="padding:8px 12px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(o.malzTanim)}">${esc(o.malzTanim)}</td>
-                <td style="padding:8px 12px;font-weight:600">${esc(o.bagMiktar)}</td>
-                <td style="padding:8px 12px;color:var(--lgray);font-size:11px">${o.sipTarih?fmtDate(o.sipTarih):"—"}</td>
-                <td style="padding:8px 12px">${fmtDate(o.sozTarih)}</td>
-                <td style="padding:8px 12px">
-                  <select onchange="saveYdDurum('${esc(o.id)}',this.value)" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;width:100%">
+              return `<tr style="border-top:1px solid #F1F5F9${i===0?";border-top:2px solid var(--border)":""}">
+                ${i===0?`<td rowspan="${g.orders.length}" style="padding:8px 12px;font-weight:600;vertical-align:top;border-right:1px solid var(--border);max-width:140px;word-break:break-word">${esc(g.tedUnvan)}</td>`:""}
+                <td style="padding:7px 12px" class="mono">${esc(o.talepNo)}/${esc(o.strNo)}</td>
+                <td style="padding:7px 12px" class="mono">${esc(o.malzKodu)}</td>
+                <td style="padding:7px 12px;color:var(--gray);max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.ek1||"—")}</td>
+                <td style="padding:7px 12px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(o.malzTanim)}">${esc(o.malzTanim)}</td>
+                <td style="padding:7px 12px;font-weight:600;text-align:center">${esc(o.bagMiktar)}</td>
+                <td style="padding:7px 12px;color:var(--lgray);white-space:nowrap">${o.sipTarih?fmtDate(o.sipTarih):"—"}</td>
+                <td style="padding:7px 12px;white-space:nowrap">${fmtDate(o.sozTarih)}</td>
+                <td style="padding:7px 12px">
+                  <select id="yd-dur-${esc(o.id)}" onchange="saveYdSatir('${esc(o.id)}')"
+                    style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;width:100%;background:#fff">
                     ${durumlar.map(d=>`<option value="${d}" ${n.durum===d?"selected":""}>${d}</option>`).join("")}
                   </select>
                 </td>
-                <td style="padding:8px 12px">
-                  <div style="display:flex;gap:6px;align-items:center">
+                <td style="padding:7px 12px">
+                  <div style="display:flex;gap:5px;align-items:center">
                     <input type="text" id="yd-not-${esc(o.id)}" value="${esc(n.not)}" placeholder="Not gir..."
                       style="padding:4px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;flex:1;min-width:120px"
-                      onkeydown="if(event.key==='Enter')saveYdNotSatir('${esc(o.id)}')">
-                    <button onclick="saveYdNotSatir('${esc(o.id)}')"
-                      style="padding:4px 8px;font-size:10px;background:var(--navy);color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">
-                      💾
-                    </button>
+                      onkeydown="if(event.key==='Enter')saveYdSatir('${esc(o.id)}')">
+                    <button onclick="saveYdSatir('${esc(o.id)}')"
+                      style="padding:4px 8px;font-size:11px;background:var(--navy);color:#fff;border:none;border-radius:6px;cursor:pointer">💾</button>
                   </div>
                   ${n.updatedAt?`<div style="font-size:10px;color:var(--lgray);margin-top:2px">${fmtDateTime(n.updatedAt)}</div>`:""}
                 </td>
               </tr>`;
-            }).join("")}
-          </tbody>
-        </table>
-      </div>`).join("")}
+            }).join("")
+          ).join("")}
+        </tbody>
+      </table>
     </div>
-    <div class="modal-ftr">
-      <button class="btn btn-ghost btn-sm" onclick="closeModal()">Kapat</button>
-      <button class="btn btn-primary btn-sm" onclick="exportYd()">⬇ Excel İndir</button>
-    </div>
-  </div>`);
+  </div>`;
 
-  window.saveYdDurum=async function(id, durum){
+  window.saveYdSatir=async function(id){
     const notEl=document.getElementById("yd-not-"+id);
-    const not_=notEl?notEl.value:"";
-    await saveYdNot(id, not_, durum);
-    flash("Durum kaydedildi.");
-  };
-
-  window.saveYdNotSatir=async function(id){
-    const notEl=document.getElementById("yd-not-"+id);
-    const not_=notEl?notEl.value:"";
-    const durumSel=document.querySelector(`[onchange="saveYdDurum('${id}',this.value)"]`);
-    const durum=durumSel?durumSel.value:"bekliyor";
-    await saveYdNot(id, not_, durum);
-    flash("Not kaydedildi.");
+    const durSel=document.getElementById("yd-dur-"+id);
+    await saveYdNot(id, notEl?notEl.value:"", durSel?durSel.value:"bekliyor");
+    flash("Kaydedildi.");
+    // Güncelleme zamanını göster
+    const div=notEl?notEl.parentElement.nextElementSibling:null;
+    if(div) div.textContent=fmtDateTime(new Date().toISOString());
   };
 
   window.exportYd=function(){
@@ -1297,7 +1293,8 @@ window.showYdPanel=async function(){
     XLSX.utils.book_append_sheet(wb,ws,"YD Siparişler");
     XLSX.writeFile(wb,"YD_Siparisler_"+new Date().toISOString().slice(0,10)+".xlsx");
   };
-};
+}
+
 window.setSearch=function(q){_D.search=q.toLowerCase();renderDash();};
 window.toggleAll=function(checked){document.querySelectorAll("[id^='schk-']").forEach(el=>el.checked=checked);updateTopluBtn();};
 window.updateTopluBtn=function(){
